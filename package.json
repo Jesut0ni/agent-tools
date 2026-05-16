@@ -1,0 +1,25 @@
+{
+  "name": "agent-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An open registry of machine-readable tools designed for AI agents.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npx turbo dev",
+    "build": "npx turbo build",
+    "lint": "npx turbo lint",
+    "test": "npx turbo test",
+    "db:generate": "npm -w @agent-tools/api run db:generate",
+    "db:migrate": "npm -w @agent-tools/api run db:migrate",
+    "db:push": "npm -w @agent-tools/api run db:push"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@11.9.0",
+  "devDependencies": {
+    "turbo": "^2.3.0"
+  }
+}
