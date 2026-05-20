@@ -1,0 +1,649 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>agent-tools — Product Requirements & Technical Documentation</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a1a1a; max-width: 720pt; margin: 0 auto; padding: 40pt; }
+  h1 { font-size: 28pt; font-weight: bold; color: #1a1a1a; border-bottom: 2pt solid #10b981; padding-bottom: 8pt; margin-top: 24pt; }
+  h2 { font-size: 20pt; font-weight: bold; color: #2d2d2d; border-bottom: 1pt solid #e0e0e0; padding-bottom: 6pt; margin-top: 28pt; }
+  h3 { font-size: 14pt; font-weight: bold; color: #3d3d3d; margin-top: 18pt; }
+  h4 { font-size: 12pt; font-weight: bold; color: #4d4d4d; margin-top: 14pt; }
+  p { margin: 8pt 0; }
+  strong { font-weight: bold; }
+  code { font-family: Consolas, 'Courier New', monospace; font-size: 10pt; background: #f4f4f4; padding: 1pt 4pt; border-radius: 3pt; }
+  pre { background: #f6f8fa; border: 1pt solid #e1e4e8; border-radius: 4pt; padding: 12pt; overflow-x: auto; margin: 12pt 0; }
+  pre code { background: none; padding: 0; font-size: 9.5pt; }
+  table { border-collapse: collapse; width: 100%; margin: 12pt 0; font-size: 10pt; }
+  th { background: #ecfdf5; font-weight: bold; text-align: left; padding: 8pt 10pt; border: 1pt solid #d0d7de; }
+  td { padding: 6pt 10pt; border: 1pt solid #d0d7de; vertical-align: top; }
+  tr:nth-child(even) { background: #f9f9f9; }
+  ul, ol { margin: 8pt 0; padding-left: 24pt; }
+  li { margin: 4pt 0; }
+  hr { border: none; border-top: 1pt solid #e0e0e0; margin: 24pt 0; }
+  a { color: #10b981; text-decoration: none; }
+  blockquote { border-left: 3pt solid #10b981; margin: 12pt 0; padding: 8pt 16pt; background: #ecfdf5; }
+  .meta { color: #666; font-size: 10pt; }
+  .pill { display: inline-block; background: #ecfdf5; color: #065f46; border: 1pt solid #6ee7b7; border-radius: 10pt; padding: 1pt 8pt; font-size: 9pt; font-weight: bold; margin-right: 4pt; }
+</style>
+</head>
+<body>
+
+<h1>agent-tools</h1>
+<p><strong>An open registry of machine-readable tools designed for AI agents to discover and call programmatically.</strong></p>
+<p class="meta">Version 0.7 &middot; Repository: <a href="https://github.com/Jesut0ni/agent-tools">github.com/Jesut0ni/agent-tools</a> &middot; Status: shippable v0, suitable for open-source launch and private alpha. Not yet hardened for unrestricted public traffic (see <strong>Roadmap</strong>).</p>
+<p><span class="pill">YC RFS S26: Software for Agents</span> <span class="pill">MIT</span> <span class="pill">Companion to AgentGate</span></p>
+
+<blockquote>
+<p>AI agents only matter to the extent that they can <em>do</em> things. The Y Combinator Request for Startups (Summer 2026) explicitly calls for <em>"machine-readable interfaces and tools specifically designed for AI agents to use programmatically without human intervention."</em> agent-tools is a direct answer to that prompt: every tool registered here is automatically exposed as a native MCP tool, callable by Claude Desktop, Cursor, or any custom agent — and gated by typed schemas, real SSRF protection, audit logs, and (optionally) AgentGate JWT scopes.</p>
+</blockquote>
+
+<hr>
+
+<h2>1. The Problem</h2>
+
+<p>AI agents are increasingly the unit of automation — they read inboxes, file PRs, manage spreadsheets, book meetings, run reports. But every agent today reinvents how it discovers and calls real-world tools. The result is fragility, duplicated work, and security holes.</p>
+
+<h3>What's broken today</h3>
+
+<ol>
+<li><p><strong>No common catalog.</strong> Every agent maker maintains a private hardcoded list of "tools the agent knows about." There is no shared, browsable registry of tools an agent can pick up at runtime. A weather skill in your agent and a weather skill in mine are two completely separate implementations.</p></li>
+
+<li><p><strong>No standard machine-readable contract.</strong> Each tool exposes its own ad-hoc shape: README docs, Postman collections, hand-typed wrapper functions. Agents have no consistent way to learn "what does this tool need, and what does it return?" The cost is paid every time someone adds a new integration.</p></li>
+
+<li><p><strong>No safe execution layer.</strong> The naive way to give an agent a tool is "let it make an HTTP call." That is an immediate SSRF + abuse vector — the agent (or a user prompt) can be tricked into calling internal IPs, scraping arbitrary endpoints, or laundering traffic through your infrastructure.</p></li>
+
+<li><p><strong>No versioning.</strong> Upstream APIs change. Agents that hard-coded "v1 of vendor X" silently break. There is no industry-standard way to say "use the v0.3 spec of acme-send-invoice."</p></li>
+
+<li><p><strong>No auth handoff.</strong> When an agent acts on behalf of a user, it needs scoped, revocable, auditable access. Pasting raw API keys into prompts is what people do today — it's awful. There is no shared mechanism for "I have an AgentGate-issued token for scope <code>tools:call</code>, please verify and proxy."</p></li>
+
+<li><p><strong>MCP is the standard, but tools aren't ready for it.</strong> Anthropic, OpenAI, Cursor, Claude Desktop, and most agent runtimes have converged on the <strong>Model Context Protocol</strong> as the agent-tool interface. Yet MCP servers are still hand-coded one-by-one. There is no <em>"publish once, become an MCP tool"</em> path.</p></li>
+
+<li><p><strong>No audit trail.</strong> When an agent calls "your" tool 1,000 times overnight, you have no way to ask "who called it, did it succeed, how long did it take?" Tool publishers fly blind.</p></li>
+</ol>
+
+<p>Every company deploying AI agents will hit all seven of these problems. agent-tools solves them as one product.</p>
+
+<hr>
+
+<h2>2. The Solution</h2>
+
+<p>agent-tools is a registry where any verified developer publishes a tool once — a typed, versioned spec describing the endpoint, the input schema, the output schema, and the auth required. Agents discover those tools through a public directory, an HTTP API, or natively over the Model Context Protocol. When an agent invokes a tool, the registry proxies the call: validating input against the schema, enforcing SSRF and abuse policies, verifying AgentGate JWTs if the tool requires them, and writing an audit row.</p>
+
+<pre><code>┌──────────────┐    ┌──────────────────┐    ┌──────────────┐
+│   AI Agent   │───▶│   agent-tools    │───▶│  Upstream    │
+│              │   │   /api/v1/mcp    │   │   APIs       │
+│  (MCP over   │   │    or            │   │              │
+│   HTTP/stdio)│   │  /tools/:slug/   │   │              │
+│              │   │     call         │   │              │
+└──────────────┘   └──────────────────┘   └──────────────┘
+       │                    │
+       │ (optional)         │ validates · audits · rate-limits
+       │                    │
+       │                    ▼
+       │           ┌──────────────────┐
+       │           │    AgentGate     │ ← scoped, revocable JWTs
+       └──────────▶│  (auth layer)    │
+                   └──────────────────┘
+</code></pre>
+
+<h3>Core capabilities</h3>
+
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Open registry</strong></td>
+<td>Any verified developer publishes typed tools. Public directory at <code>/</code>. List + search via <code>GET /api/v1/tools</code>.</td>
+</tr>
+<tr>
+<td><strong>Machine-readable specs</strong></td>
+<td>Every tool has a <code>ToolSpec</code>: HTTP method + URL, JSON Schema for input/output, auth type, optional examples. Validated as draft-07 JSON Schema on publish.</td>
+</tr>
+<tr>
+<td><strong>Native MCP server</strong></td>
+<td>JSON-RPC 2.0 over HTTP at <code>/api/v1/mcp</code> (<code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, <code>ping</code>). Stdio bridge in <code>@agent-tools/mcp</code> for Claude Desktop / Cursor.</td>
+</tr>
+<tr>
+<td><strong>Single proxy endpoint</strong></td>
+<td><code>POST /api/v1/tools/:slug/call</code> forwards the call. GET-style tools take input as query params; POST-style as body. Agent never touches the upstream URL directly.</td>
+</tr>
+<tr>
+<td><strong>Real SSRF guard</strong></td>
+<td>DNS-resolving check on every invoke: resolves the upstream hostname to <em>all</em> A/AAAA records and rejects any private, loopback, link-local, CGNAT, or ULA address. IPv4 + IPv6.</td>
+</tr>
+<tr>
+<td><strong>Schema validation</strong></td>
+<td>Ajv validates input/output as JSON Schema draft-07 at publish time. At invoke time, the input payload is validated against the tool's input schema.</td>
+</tr>
+<tr>
+<td><strong>AgentGate integration</strong></td>
+<td>Tools with <code>auth.type === "agentgate"</code> require the caller to present an AgentGate-issued JWT (HS256, shared secret). Required scopes from the spec are enforced.</td>
+</tr>
+<tr>
+<td><strong>Audit log</strong></td>
+<td>Every invocation — successful or failed — writes a row: tool, owner, caller kind/id, status, duration, error message, timestamp. Owners read their tools' calls at <code>GET /api/v1/invocations</code>.</td>
+</tr>
+<tr>
+<td><strong>Abuse controls</strong></td>
+<td>Per-developer tool cap, 24h rolling per-developer call cap, soft-suspend flag, operator-configured upstream host allow/deny lists.</td>
+</tr>
+<tr>
+<td><strong>Email verification</strong></td>
+<td>Two-step signup: <code>POST /developers</code> issues a pending account + token; <code>POST /developers/verify</code> mints the API key. Operator wires the verify link to a mail provider in production.</td>
+</tr>
+<tr>
+<td><strong>OpenAPI importer</strong></td>
+<td>Paste an OpenAPI 3.x URL or JSON at <code>/import</code>: every operation becomes a tool candidate with derived input/output schemas. Check boxes, bulk publish.</td>
+</tr>
+<tr>
+<td><strong>Ownership + deletion</strong></td>
+<td>Tools track <code>ownerId</code>. Only the owner can publish a new version or delete. Non-owners see 403.</td>
+</tr>
+<tr>
+<td><strong>Cursor pagination</strong></td>
+<td>List + invocations endpoints return <code>nextCursor</code> (base64url of <code>updatedAt:id</code>). Stable under high write rate.</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>3. Architecture</h2>
+
+<pre><code>agent-tools/
+├── packages/
+│   ├── shared/     # Zod schemas, ToolSpec types — public contract
+│   ├── api/        # Hono REST API + MCP server + invoke proxy
+│   ├── web/        # Next.js 15 directory + publish + signup + import
+│   └── mcp/        # Stdio MCP bridge binary for Claude Desktop / Cursor
+├── docker-compose.yml
+├── .env.example
+└── packages/api/src/db/migrations/  # Drizzle migrations
+</code></pre>
+
+<h3>Tech stack</h3>
+
+<ul>
+<li><strong>API:</strong> <a href="https://hono.dev">Hono</a> on Node.js &ge; 20</li>
+<li><strong>Database:</strong> SQLite via <a href="https://orm.drizzle.team">Drizzle ORM</a> + better-sqlite3. Migrations run on boot. Postgres path is a clean swap to <code>pgTable</code> (deferred until traffic justifies).</li>
+<li><strong>Frontend:</strong> Next.js 15 + React 19 + Tailwind CSS 3</li>
+<li><strong>Validation:</strong> Zod at the API boundary; <a href="https://ajv.js.org">Ajv</a> for JSON Schema (meta-schema on publish, runtime on invoke)</li>
+<li><strong>Auth:</strong> SHA-256 hashed API keys, <code>jose</code> for AgentGate JWT verification</li>
+<li><strong>Logging:</strong> pino (pretty in dev, structured in production)</li>
+<li><strong>MCP transport:</strong> rolled in-house (small JSON-RPC dispatch) + Node readline for the stdio bridge</li>
+<li><strong>Tooling:</strong> Turbo workspaces, tsx (dev), Vitest (tests), drizzle-kit (migrations)</li>
+</ul>
+
+<h3>Data model</h3>
+
+<pre><code>developers ──┬── tools (1..N) ── tool_versions (1..N)
+             │
+             └── invocations (1..N, owned via tools.ownerId)
+</code></pre>
+
+<h4>developers</h4>
+<table>
+<thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td>text PK (cuid2)</td><td></td></tr>
+<tr><td><code>email</code></td><td>text NOT NULL</td><td>unique index</td></tr>
+<tr><td><code>api_key_hash</code></td><td>text</td><td>SHA-256 of full key; nullable until verify</td></tr>
+<tr><td><code>api_key_preview</code></td><td>text</td><td>e.g. <code>at_657e…bb9d</code></td></tr>
+<tr><td><code>verified</code></td><td>boolean DEFAULT false</td><td></td></tr>
+<tr><td><code>verification_token</code></td><td>text</td><td>random 24-byte base64url; cleared on consume</td></tr>
+<tr><td><code>suspended</code></td><td>boolean DEFAULT false</td><td>operator-set soft block</td></tr>
+<tr><td><code>created_at</code></td><td>integer (timestamp)</td><td></td></tr>
+</tbody>
+</table>
+
+<h4>tools</h4>
+<table>
+<thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td>text PK</td><td></td></tr>
+<tr><td><code>slug</code></td><td>text NOT NULL</td><td>unique; <code>[a-z0-9]+(?:[-_][a-z0-9]+)*</code></td></tr>
+<tr><td><code>name</code></td><td>text</td><td></td></tr>
+<tr><td><code>description</code></td><td>text</td><td></td></tr>
+<tr><td><code>owner_id</code></td><td>text → developers.id</td><td>nullable for system-seeded tools</td></tr>
+<tr><td><code>visibility</code></td><td>"public" | "private"</td><td>v0.7: only public surfaced via list</td></tr>
+<tr><td><code>latest_version</code></td><td>text</td><td>semver; matches a row in tool_versions</td></tr>
+<tr><td><code>created_at / updated_at</code></td><td>integer</td><td></td></tr>
+</tbody>
+</table>
+
+<h4>tool_versions</h4>
+<table>
+<thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td>text PK</td><td></td></tr>
+<tr><td><code>tool_id</code></td><td>text → tools.id ON DELETE CASCADE</td><td></td></tr>
+<tr><td><code>version</code></td><td>text</td><td>semver; unique within a tool</td></tr>
+<tr><td><code>spec</code></td><td>json</td><td>the <code>ToolSpec</code> (endpoint, input, output, auth, examples)</td></tr>
+<tr><td><code>created_at</code></td><td>integer</td><td></td></tr>
+</tbody>
+</table>
+
+<h4>invocations</h4>
+<table>
+<thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td>text PK</td><td></td></tr>
+<tr><td><code>tool_id / tool_slug</code></td><td>text</td><td></td></tr>
+<tr><td><code>tool_owner_id</code></td><td>text</td><td>denormalized for owner-side queries</td></tr>
+<tr><td><code>caller_kind</code></td><td>"developer" | "agent" | "anonymous"</td><td></td></tr>
+<tr><td><code>caller_id</code></td><td>text</td><td>developer.id for developer callers; null otherwise</td></tr>
+<tr><td><code>status</code></td><td>integer</td><td>HTTP status (proxy result or thrown error)</td></tr>
+<tr><td><code>duration_ms</code></td><td>integer</td><td></td></tr>
+<tr><td><code>error_message</code></td><td>text</td><td>null on success</td></tr>
+<tr><td><code>called_at</code></td><td>integer</td><td></td></tr>
+</tbody>
+</table>
+<p>Indexes: <code>(tool_owner_id, called_at)</code>, <code>(caller_id, called_at)</code>, <code>(tool_id, called_at)</code> — all the access patterns hit indexes.</p>
+
+<hr>
+
+<h2>4. The ToolSpec contract</h2>
+
+<p>The <strong>ToolSpec</strong> is the heart of the product. Once a developer pins down a ToolSpec, the registry knows everything it needs to expose the tool over HTTP, expose it over MCP, validate inputs, and proxy calls. Spec lives in <code>packages/shared/src/schemas/tool.ts</code>.</p>
+
+<pre><code class="language-typescript">interface ToolSpec {
+  endpoint: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    url: string;       // absolute https URL of the upstream
+  };
+  input:  Record&lt;string, unknown&gt;;   // JSON Schema (draft-07)
+  output: Record&lt;string, unknown&gt;;   // JSON Schema (draft-07)
+  auth:
+    | { type: "none" }
+    | { type: "bearer";   headerName?: string }    // forward caller bearer
+    | { type: "agentgate"; scopes: string[] };     // require AG JWT + scopes
+  description?: string;
+  examples?: Array&lt;{ input: unknown; output?: unknown }&gt;;
+}
+</code></pre>
+
+<h3>Example: weather-now</h3>
+<pre><code class="language-json">{
+  "slug": "weather-now",
+  "name": "Current Weather",
+  "description": "Current temperature + wind for a lat/long. Open-meteo, no API key.",
+  "version": "0.1.0",
+  "spec": {
+    "endpoint": { "method": "GET", "url": "https://api.open-meteo.com/v1/forecast" },
+    "input": {
+      "type": "object",
+      "properties": {
+        "latitude":  { "type": "number" },
+        "longitude": { "type": "number" },
+        "current":   { "type": "string", "description": "comma-separated fields" }
+      },
+      "required": ["latitude", "longitude"]
+    },
+    "output": { "type": "object" },
+    "auth":   { "type": "none" },
+    "examples": [
+      { "input": { "latitude": 52.52, "longitude": 13.41, "current": "temperature_2m" } }
+    ]
+  }
+}
+</code></pre>
+
+<hr>
+
+<h2>5. Quick Start</h2>
+
+<h3>Prerequisites</h3>
+<ul>
+<li>Node.js &ge; 20</li>
+<li>npm &ge; 10 (uses workspaces)</li>
+</ul>
+
+<h3>Local dev</h3>
+<pre><code class="language-bash">git clone https://github.com/Jesut0ni/agent-tools.git
+cd agent-tools
+npm install
+npm run dev      # api on :3002, web on :3000 (migrations run on boot)
+npm run seed     # creates demo@agent-tools.local + 5 sample tools, prints API key
+</code></pre>
+
+<p>Open <a href="http://localhost:3000">http://localhost:3000</a>. You can:</p>
+<ul>
+<li>Browse the directory.</li>
+<li>Click a tool (e.g. <em>Current Weather</em>) → "Try it" panel is pre-filled with the example input.</li>
+<li>Sign up at <code>/signup</code> for your own developer account.</li>
+<li>Publish at <code>/publish</code> (form requires a session).</li>
+<li>Import at <code>/import</code> (paste any OpenAPI 3 URL, e.g. <code>https://petstore3.swagger.io/api/v3/openapi.json</code>).</li>
+</ul>
+
+<h3>Docker</h3>
+<pre><code class="language-bash">cp .env.example .env
+# edit .env — at minimum, set AGENTGATE_JWT_SECRET to a 32+ char secret
+docker compose up --build
+</code></pre>
+<p>The API refuses to start with the dev-default JWT secret when <code>NODE_ENV=production</code>. SQLite data persists in the <code>agent-tools-data</code> named volume.</p>
+
+<hr>
+
+<h2>6. How It Works — end-to-end flows</h2>
+
+<h3>A. Publish a tool</h3>
+
+<pre><code>1.  POST /api/v1/developers      { email }           → pending dev + token
+2.  POST /api/v1/developers/verify { token }         → 201 + apiKey (shown once)
+3.  POST /api/v1/tools  (Authorization: Bearer at_…)
+          { slug, name, version, spec }              → 201 + ownerId
+4.  Tool is immediately:
+       • on the public directory
+       • returned by GET /api/v1/tools
+       • exposed by MCP tools/list
+</code></pre>
+
+<h3>B. Invoke a tool (anonymous)</h3>
+
+<pre><code>POST /api/v1/tools/weather-now/call
+     { "latitude": 52.52, "longitude": 13.41 }
+
+Internally:
+  1. assertSafeUrl(spec.endpoint.url)     ← DNS lookup, reject private IPs
+  2. assertUpstreamHostAllowed(host)      ← operator policy
+  3. enforceDailyCap(caller, max)         ← for developer callers
+  4. validateAgainstSchema(spec.input, input)
+  5. if (spec.auth.type === "agentgate") verifyAgentGateToken(...)
+  6. fetch(upstream)
+  7. write invocations row (success or failure)
+  8. return { status, headers, body, durationMs }
+</code></pre>
+
+<h3>C. Invoke a tool that requires AgentGate scopes</h3>
+
+<pre><code class="language-bash">curl -X POST https://agent-tools.example.com/api/v1/tools/locked/call \
+  -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...'  \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# verifyAgentGateToken:
+#   - HS256 with AGENTGATE_JWT_SECRET (shared with AgentGate)
+#   - iss must equal "agentgate"
+#   - exp must be in the future
+#   - JWT's `scope` (space-separated) or `scopes` (array) must include
+#     every entry in spec.auth.scopes
+#
+# Behaviours:
+#   no token         → 401 "Tool requires AgentGate auth"
+#   bogus signature  → 401 "AgentGate token invalid: ..."
+#   missing scopes   → 403 "Missing required scopes: ..."
+#   valid + scoped   → 200 proxied
+</code></pre>
+
+<h3>D. Use it from Claude Desktop / Cursor (MCP stdio)</h3>
+
+<p>Add to your client's MCP config:</p>
+<pre><code class="language-json">{
+  "mcpServers": {
+    "agent-tools": {
+      "command": "npx",
+      "args": ["-y", "@agent-tools/mcp"],
+      "env": {
+        "AGENT_TOOLS_API_URL": "http://localhost:3002",
+        "AGENT_TOOLS_API_KEY": "at_..."
+      }
+    }
+  }
+}
+</code></pre>
+<p>The CLI reads newline-delimited JSON-RPC from stdin, POSTs to <code>/api/v1/mcp</code>, and writes responses to stdout. Every registered tool is exposed as an MCP tool with its input schema, ready for the client's tool picker.</p>
+
+<h3>E. Owner reads activity</h3>
+
+<pre><code class="language-bash">curl -H "Authorization: Bearer $AGENT_TOOLS_KEY" \
+  "https://agent-tools.example.com/api/v1/invocations?slug=weather-now&limit=20"
+
+# {
+#   "items": [
+#     { "id":"inv_...","toolSlug":"weather-now","callerKind":"developer",
+#       "callerId":"qnx6…", "status":200, "durationMs":497,
+#       "errorMessage":null, "calledAt":"2026-05-20T17:49:43Z" },
+#     ...
+#   ],
+#   "count": 20,
+#   "nextCursor": "MTcxNjMyMTkyNjEzNjpvOW9pajVncWdh..."
+# }
+</code></pre>
+<p>Non-owners querying the same slug see <code>count: 0</code>.</p>
+
+<hr>
+
+<h2>7. API Reference</h2>
+
+<table>
+<thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th></tr></thead>
+<tbody>
+
+<tr><td><strong>Developers</strong></td><td></td><td></td><td></td></tr>
+<tr><td><code>POST</code></td><td><code>/api/v1/developers</code></td><td>None</td><td>Sign up (returns pending state + token)</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/v1/developers/verify</code></td><td>None</td><td>Consume token, mint API key</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/developers/verify?token=…</code></td><td>None</td><td>Convenience GET form of verify (for email links)</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/developers/me</code></td><td>API Key</td><td>Current developer info</td></tr>
+
+<tr><td><strong>Tools</strong></td><td></td><td></td><td></td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/tools</code></td><td>None</td><td>List public tools (search by <code>?q=…</code>, paginate with <code>?cursor=…</code>)</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/v1/tools</code></td><td>API Key</td><td>Publish (initial version)</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/tools/:slug</code></td><td>None</td><td>Tool detail with latest spec</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/tools/:slug/versions</code></td><td>None</td><td>All versions, newest first</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/v1/tools/:slug/versions</code></td><td>API Key (owner)</td><td>Publish new version</td></tr>
+<tr><td><code>DELETE</code></td><td><code>/api/v1/tools/:slug</code></td><td>API Key (owner)</td><td>Delete tool (cascades versions)</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/v1/tools/:slug/call</code></td><td>None / Bearer / AgentGate JWT depending on <code>spec.auth.type</code></td><td>Proxy invoke</td></tr>
+
+<tr><td><strong>Invocations (Audit)</strong></td><td></td><td></td><td></td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/invocations</code></td><td>API Key</td><td>Caller's owned-tool invocations (filter by <code>?slug=…</code>, paginate with <code>?cursor=…</code>)</td></tr>
+
+<tr><td><strong>MCP</strong></td><td></td><td></td><td></td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/mcp</code></td><td>None</td><td>Server descriptor (name, protocol version, methods)</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/v1/mcp</code></td><td>None / API Key (passed through to <code>tools/call</code> if needed)</td><td>JSON-RPC 2.0: <code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, <code>ping</code></td></tr>
+
+<tr><td><strong>Ops</strong></td><td></td><td></td><td></td></tr>
+<tr><td><code>GET</code></td><td><code>/api/v1/health</code></td><td>None</td><td>Liveness + DB integrity check</td></tr>
+
+</tbody>
+</table>
+
+<h3>Standard error shape</h3>
+<pre><code class="language-json">{ "error": { "code": 401, "message": "API key required. Sign up at POST /api/v1/developers." } }
+</code></pre>
+<p>Validation failures additionally include a <code>details</code> field (Zod's <code>flatten()</code> output). MCP errors follow JSON-RPC 2.0 (<code>error.code</code> uses standard codes <code>-32xxx</code>).</p>
+
+<hr>
+
+<h2>8. Security</h2>
+
+<ul>
+<li><strong>API keys</strong> are 32 random bytes hex-encoded, prefixed <code>at_</code>; stored as SHA-256 hashes; shown once on verify and never persisted in plaintext.</li>
+<li><strong>Email verification</strong> is mandatory — keys are not minted until the verification token is consumed.</li>
+<li><strong>JWT verification</strong> (AgentGate auth-type tools): HS256 with shared dev secret in v0; swap to <code>createRemoteJWKSet</code> when AgentGate exposes JWKS. Issuer claim is checked. Expired tokens rejected.</li>
+<li><strong>SSRF guard</strong>: <code>dns.lookup({ all: true })</code> resolves every A/AAAA. Blocked ranges (IPv4): <code>0.0.0.0/8</code>, <code>10.0.0.0/8</code>, <code>100.64.0.0/10</code> (CGNAT), <code>127.0.0.0/8</code>, <code>169.254.0.0/16</code> (link-local), <code>172.16.0.0/12</code>, <code>192.0.0.0/24</code>, <code>192.168.0.0/16</code>, <code>198.18.0.0/15</code> (benchmarking), <code>224.0.0.0/4</code> (multicast), <code>240.0.0.0/4</code> (reserved). IPv6 ULA (<code>fc00::/7</code>), link-local (<code>fe80::/10</code>), loopback. IPv4-mapped IPv6 (<code>::ffff:a.b.c.d</code>) decoded and rechecked.</li>
+<li><strong>Schema validation</strong>: published <code>spec.input</code> and <code>spec.output</code> must be valid draft-07 JSON Schema (Ajv meta-validate); invoke input is validated against <code>spec.input</code> before any upstream call.</li>
+<li><strong>Slug regex</strong>: lowercase, dashes/underscores only. No path-param injection.</li>
+<li><strong>CORS</strong>: env-allowlisted via <code>CORS_ORIGINS</code>. Origins not in the list get no <code>Access-Control-Allow-Origin</code> header (browser-blocked).</li>
+<li><strong>Rate limiting</strong>: sliding window per IP + per route, separate limits for reads, writes, calls, and MCP. Headers exposed: <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code>, <code>X-RateLimit-Reset</code>.</li>
+<li><strong>Abuse controls</strong>: <code>MAX_TOOLS_PER_DEVELOPER</code>, <code>MAX_CALLS_PER_DEVELOPER_PER_DAY</code> (rolling 24h from invocations table), suspend flag (refuses publish + refuses calls to suspended owner's tools), <code>UPSTREAM_HOST_DENYLIST</code> / <code>UPSTREAM_HOST_ALLOWLIST</code>.</li>
+<li><strong>Audit log</strong> (<code>invocations</code> table): append-only at the application layer; every call writes a row in a <code>finally</code> block so failures (validation, SSRF, JWT) are still recorded with status + error.</li>
+<li><strong>Migration safety</strong>: schema migrations run on boot through <code>drizzle-orm/better-sqlite3/migrator</code>; <code>__drizzle_migrations</code> table tracks applied migrations so re-runs are no-ops.</li>
+<li><strong>Production env hardening</strong>: API refuses to boot when <code>NODE_ENV=production</code> and <code>AGENTGATE_JWT_SECRET</code> still has the dev default; warns if CORS still includes localhost.</li>
+</ul>
+
+<h3>Known security gaps (transparently)</h3>
+<ul>
+<li><strong>DNS rebinding</strong>: the SSRF check resolves <em>before</em> the fetch; an attacker could theoretically rebind a hostname between the two. Mitigation deferred — would require resolving once, pinning the IP, and overriding <code>Host</code>. Not a v0 blocker because public dev keys are required to publish.</li>
+<li><strong>Rate limit store is in-memory</strong>: wiped on restart, not coordinated across replicas. Redis-backed store is on the roadmap.</li>
+<li><strong>API key rotation</strong> is not yet exposed in the UI or API. If you leak your key, the only recovery is to ask an operator to delete + re-create the developer row.</li>
+</ul>
+
+<hr>
+
+<h2>9. Testing</h2>
+
+<p>Vitest suite — 23 specs, all passing in ~500ms.</p>
+
+<pre><code class="language-bash">npm -w @agent-tools/api test
+</code></pre>
+
+<p>Coverage spans:</p>
+<ul>
+<li>Developer signup (2-step verify, bogus token, replay, unverified re-issue vs verified-409)</li>
+<li>Publish auth (anon → 401, authed → 201)</li>
+<li>Ownership-bound delete and version</li>
+<li>JSON Schema meta validation on publish, runtime validation on invoke</li>
+<li>SSRF: literal private IPv4 and IPv6 loopback</li>
+<li>Upstream host denylist at publish time</li>
+<li>AgentGate JWT: missing, bogus, expired, wrong-scope, valid</li>
+<li>Abuse: <code>MAX_TOOLS_PER_DEVELOPER</code>, suspended-publish refusal, daily call cap</li>
+<li>Audit: invocation row appears for owner; non-owner sees empty</li>
+<li>MCP: <code>initialize</code>, <code>tools/list</code>, unknown-method (-32601)</li>
+</ul>
+
+<p>Test infrastructure uses a fresh <code>.test.db</code> file per run with the same Drizzle migrations the production app applies. <code>app.request()</code> is used to drive the Hono app in-process — no HTTP server needed for the suite.</p>
+
+<hr>
+
+<h2>10. Deployment</h2>
+
+<h3>Docker quickstart</h3>
+<pre><code class="language-bash">cp .env.example .env
+# Edit .env — minimum: set AGENTGATE_JWT_SECRET to a 32+ char secret
+docker compose up --build
+</code></pre>
+
+<p>Compose builds two images:</p>
+<ul>
+<li><strong>agent-tools-api</strong>: multi-stage Dockerfile, includes native build for <code>better-sqlite3</code>, runs as the <code>app</code> user, healthchecked against <code>/api/v1/health</code>.</li>
+<li><strong>agent-tools-web</strong>: Next.js production build with <code>NEXT_PUBLIC_AGENT_TOOLS_API_URL</code> baked in at build time.</li>
+</ul>
+
+<p>The SQLite database lives in the <code>agent-tools-data</code> named volume. To migrate to Postgres later, swap <code>db/schema/*.ts</code> from <code>sqliteTable</code> to <code>pgTable</code>; the rest of the codebase is dialect-neutral.</p>
+
+<h3>Environment variables</h3>
+
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>NODE_ENV</code></td><td><code>development</code></td><td>Triggers env hardening + suppresses verify-URL exposure</td></tr>
+<tr><td><code>DATABASE_PATH</code></td><td><code>./agent-tools.db</code></td><td>SQLite path (Docker uses <code>/data/agent-tools.db</code>)</td></tr>
+<tr><td><code>API_PORT</code></td><td><code>3002</code></td><td></td></tr>
+<tr><td><code>API_URL</code></td><td><code>http://localhost:3002</code></td><td></td></tr>
+<tr><td><code>PUBLIC_API_URL</code></td><td><code>http://localhost:3002</code></td><td>Used in verify URLs</td></tr>
+<tr><td><code>CORS_ORIGINS</code></td><td><code>http://localhost:3000</code></td><td>Comma-separated allowlist</td></tr>
+<tr><td><code>AGENTGATE_JWT_SECRET</code></td><td><em>required in prod</em></td><td>Shared HS256 secret with AgentGate</td></tr>
+<tr><td><code>AGENTGATE_JWT_ISSUER</code></td><td><code>agentgate</code></td><td></td></tr>
+<tr><td><code>RATE_LIMIT_READ_PER_MINUTE</code></td><td><code>240</code></td><td></td></tr>
+<tr><td><code>RATE_LIMIT_WRITE_PER_MINUTE</code></td><td><code>20</code></td><td></td></tr>
+<tr><td><code>RATE_LIMIT_CALL_PER_MINUTE</code></td><td><code>60</code></td><td></td></tr>
+<tr><td><code>MAX_TOOLS_PER_DEVELOPER</code></td><td><code>100</code></td><td></td></tr>
+<tr><td><code>MAX_CALLS_PER_DEVELOPER_PER_DAY</code></td><td><code>10000</code></td><td>24h rolling, developer-authed callers only</td></tr>
+<tr><td><code>UPSTREAM_HOST_DENYLIST</code></td><td>(empty)</td><td>Comma-separated; patterns like <code>*.evil.com</code></td></tr>
+<tr><td><code>UPSTREAM_HOST_ALLOWLIST</code></td><td>(empty)</td><td>If set, only listed hosts allowed</td></tr>
+<tr><td><code>CALL_TIMEOUT_MS</code></td><td><code>30000</code></td><td>Upstream fetch timeout</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td><code>info</code></td><td>pino level</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>11. The relationship to AgentGate</h2>
+
+<p>agent-tools and <a href="https://github.com/Jesut0ni/agentgate">AgentGate</a> are two separate products that <em>compose</em>:</p>
+
+<ul>
+<li><strong>AgentGate</strong> is the auth and permissions layer: it issues scoped, revocable JWTs to agents on behalf of users, manages consent screens, enforces policies, and logs the authorization lifecycle.</li>
+<li><strong>agent-tools</strong> is the directory of <em>what can be called</em>: tools published by developers, discoverable by agents, invoked through a single audited proxy.</li>
+</ul>
+
+<p>Together they answer: <em>"Which tools exist, who is allowed to call them, and what happened?"</em> A tool registered in agent-tools can specify <code>auth: { type: "agentgate", scopes: ["tools:call", "user:read"] }</code> — at invoke time the proxy verifies the caller's AgentGate JWT carries those scopes before proxying upstream. Neither product depends on the other to be useful in isolation, but used together they cover the full agent-execution lifecycle.</p>
+
+<hr>
+
+<h2>12. Roadmap</h2>
+
+<p>What's done in v0.7 is enough to launch publicly and run a private alpha. The list below is everything between here and "ready to take unrestricted public traffic," in rough priority order.</p>
+
+<h3>Deploy hardening</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Redis-backed rate limit + abuse counter store (current implementation is in-memory and wipes on restart)</li>
+<li><input disabled="" type="checkbox"> Postgres support via <code>pgTable</code> mirror schemas and a dialect switch</li>
+<li><input disabled="" type="checkbox"> Real email provider integration (Resend / Postmark) so verification links go out automatically</li>
+<li><input disabled="" type="checkbox"> Admin endpoint to suspend / unsuspend developers without DB editing</li>
+<li><input disabled="" type="checkbox"> API key rotation endpoint + UI</li>
+</ul>
+
+<h3>Developer experience</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <code>packages/sdk</code> — typed TypeScript client (publish, invoke, list, MCP helpers)</li>
+<li><input disabled="" type="checkbox"> Python SDK</li>
+<li><input disabled="" type="checkbox"> Docs site (Mintlify or similar) with a code-snippet generator per tool</li>
+<li><input disabled="" type="checkbox"> Path-templating support in proxy URLs (<code>/pets/{id}</code> with input-driven substitution)</li>
+<li><input disabled="" type="checkbox"> Swagger 2.0 importer (currently OpenAPI 3.x only)</li>
+<li><input disabled="" type="checkbox"> "Run from curl" importer — paste a curl command, get a tool spec</li>
+</ul>
+
+<h3>Trust signals</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Verified-publisher badges on tools (domain ownership challenge or org-level KYC)</li>
+<li><input disabled="" type="checkbox"> Aggregated tool stats (calls/day, success rate, P50/P95 latency) on each tool page</li>
+<li><input disabled="" type="checkbox"> Public per-tool changelog tied to versions</li>
+<li><input disabled="" type="checkbox"> User reports / takedowns</li>
+</ul>
+
+<h3>MCP enrichments</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Streamable HTTP transport (server-initiated notifications via SSE)</li>
+<li><input disabled="" type="checkbox"> MCP <code>resources/</code> for tool documentation</li>
+<li><input disabled="" type="checkbox"> MCP <code>prompts/</code> for tool-specific call templates</li>
+<li><input disabled="" type="checkbox"> Per-developer MCP servers (filter <code>tools/list</code> to one publisher)</li>
+</ul>
+
+<h3>UI polish</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Cmd-K search palette</li>
+<li><input disabled="" type="checkbox"> OG / Twitter share images per tool</li>
+<li><input disabled="" type="checkbox"> Mobile responsiveness pass (currently desktop-first)</li>
+<li><input disabled="" type="checkbox"> Embed widget — drop-in &lt;script&gt; that shows your tools on your own marketing site</li>
+</ul>
+
+<h3>Governance</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Terms of Service for publishers (what's allowed to register)</li>
+<li><input disabled="" type="checkbox"> Privacy Policy + data-retention statement</li>
+<li><input disabled="" type="checkbox"> DMCA / takedown process</li>
+</ul>
+
+<hr>
+
+<h2>13. Why now</h2>
+
+<p>Three trends are converging in 2026 that make agent-tools obvious in retrospect:</p>
+
+<ol>
+<li><strong>MCP has won.</strong> Anthropic shipped it, Cursor adopted it, Claude Desktop ships with native MCP support, and competing agent runtimes are converging. A neutral, multi-tenant registry for MCP-callable tools is now a real surface area, not a hypothetical one.</li>
+
+<li><strong>Vertical AI agents are everywhere.</strong> The YC RFS Summer 2026 list explicitly calls for "AI-native service companies," "company brains," and the "AI operating system for companies" — every one of those products needs a long tail of typed, callable tools. Right now each team rebuilds that long tail from scratch.</li>
+
+<li><strong>Agent abuse is now a real attack surface.</strong> "Just let the agent call any URL it generates" was tenable when there were 100 agents in the wild. With millions of agent-driven calls per day, the unguarded variant is an SSRF and impersonation playground. The platform that becomes the trusted execution layer wins by default.</li>
+</ol>
+
+<p>agent-tools sits exactly at the intersection of those three. It is the smallest viable thing that turns the YC RFS prompt into a working product — and the natural complement to the auth layer (AgentGate) that this team is also building.</p>
+
+<hr>
+
+<h2>14. License</h2>
+<p>MIT.</p>
+
+<p class="meta">Last updated 2026-05-20. Source of truth lives in this document plus the README at <a href="https://github.com/Jesut0ni/agent-tools">github.com/Jesut0ni/agent-tools</a>. Discrepancies between this doc and the code should be reported as issues.</p>
+
+</body>
+</html>
