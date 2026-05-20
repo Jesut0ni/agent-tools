@@ -44,6 +44,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 Directory
               </Link>
               <Link
+                href="/import"
+                className="hidden md:inline px-3 py-1.5 rounded-md text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition"
+              >
+                Import
+              </Link>
+              <Link
                 href="https://github.com/Jesut0ni/agentgate"
                 target="_blank"
                 className="hidden md:inline px-3 py-1.5 rounded-md text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition"

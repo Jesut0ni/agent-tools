@@ -11,6 +11,7 @@ import { getEnv } from "./env.js";
 import healthRoutes from "./routes/health.js";
 import toolRoutes from "./routes/tools.js";
 import developerRoutes from "./routes/developers.js";
+import mcpRoutes from "./routes/mcp.js";
 
 const env = getEnv();
 const app = new Hono();
@@ -58,9 +59,14 @@ app.use("/api/v1/tools/*", async (c, next) => {
   return rateLimit(limit)(c, next);
 });
 
+// MCP: anything can carry a tools/call inside, so treat like /tools/:slug/call
+app.use("/api/v1/mcp", rateLimit(env.RATE_LIMIT_CALL_PER_MINUTE));
+app.use("/api/v1/mcp/*", rateLimit(env.RATE_LIMIT_CALL_PER_MINUTE));
+
 app.route("/api/v1/health", healthRoutes);
 app.route("/api/v1/tools", toolRoutes);
 app.route("/api/v1/developers", developerRoutes);
+app.route("/api/v1/mcp", mcpRoutes);
 
 app.get("/", (c) =>
   c.json({

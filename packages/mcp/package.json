@@ -1,0 +1,26 @@
+{
+  "name": "@agent-tools/mcp",
+  "version": "0.1.0",
+  "description": "Stdio MCP server that bridges to an agent-tools HTTP registry.",
+  "type": "module",
+  "bin": {
+    "agent-tools-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "lint": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
