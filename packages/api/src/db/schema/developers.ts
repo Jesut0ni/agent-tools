@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { createId } from "@paralleldrive/cuid2";
 
 export const developers = sqliteTable(
@@ -6,8 +6,11 @@ export const developers = sqliteTable(
   {
     id: text("id").primaryKey().$defaultFn(() => createId()),
     email: text("email").notNull(),
-    apiKeyHash: text("api_key_hash").notNull(),
-    apiKeyPreview: text("api_key_preview").notNull(),
+    apiKeyHash: text("api_key_hash"),
+    apiKeyPreview: text("api_key_preview"),
+    verified: integer("verified", { mode: "boolean" }).notNull().default(false),
+    verificationToken: text("verification_token"),
+    suspended: integer("suspended", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -15,6 +18,7 @@ export const developers = sqliteTable(
   (t) => ({
     emailIdx: uniqueIndex("developers_email_unique").on(t.email),
     keyIdx: uniqueIndex("developers_api_key_hash_unique").on(t.apiKeyHash),
+    verifyIdx: index("developers_verification_token_idx").on(t.verificationToken),
   })
 );
 

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { and, desc, eq, like, or, lt } from "drizzle-orm";
+import { and, desc, eq, like, or, lt, sql } from "drizzle-orm";
 import {
   publishToolSchema,
   publishVersionSchema,
@@ -13,6 +13,8 @@ import { type DeveloperRow } from "../db/schema/developers.js";
 import { authMiddleware, requireDeveloper, type Caller } from "../middleware/auth.js";
 import { validateJsonSchemaShape, validateAgainstSchema } from "../lib/json-schema.js";
 import { invokeRegisteredTool, loadToolBySlug, loadLatestSpec } from "../services/invoke.js";
+import { assertUpstreamHostAllowed } from "../lib/host-allow.js";
+import { getEnv } from "../env.js";
 
 type Vars = { Variables: { caller: Caller } };
 
@@ -41,9 +43,37 @@ function assertOwner(tool: ToolRow, dev: DeveloperRow) {
   }
 }
 
+function assertNotSuspended(dev: DeveloperRow) {
+  if (dev.suspended) {
+    throw new HTTPException(403, { message: "Your developer account is suspended" });
+  }
+}
+
+async function assertUnderToolCap(dev: DeveloperRow) {
+  const max = getEnv().MAX_TOOLS_PER_DEVELOPER;
+  if (max <= 0) return;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(tools)
+    .where(eq(tools.ownerId, dev.id));
+  const owned = Number(rows[0]?.count ?? 0);
+  if (owned >= max) {
+    throw new HTTPException(403, {
+      message: `Tool cap of ${max} reached for this developer`,
+    });
+  }
+}
+
 function validateToolSpec(spec: ToolSpec) {
   validateJsonSchemaShape(spec.input, "spec.input");
   validateJsonSchemaShape(spec.output, "spec.output");
+  try {
+    const url = new URL(spec.endpoint.url);
+    assertUpstreamHostAllowed(url.hostname);
+  } catch (err) {
+    if (err instanceof HTTPException) throw err;
+    throw new HTTPException(400, { message: `Invalid endpoint URL: ${(err as Error).message}` });
+  }
   if (spec.examples) {
     for (const [i, ex] of spec.examples.entries()) {
       const issues = validateAgainstSchema(spec.input, ex.input);
@@ -75,6 +105,8 @@ function decodeCursor(cursor: string): { ts: number; id: string } | null {
 app.post("/", async (c) => {
   const caller = c.get("caller");
   requireDeveloper(caller);
+  assertNotSuspended(caller.developer);
+  await assertUnderToolCap(caller.developer);
 
   const body = publishToolSchema.parse(await c.req.json());
   validateToolSpec(body.spec);
@@ -184,6 +216,7 @@ app.get("/:slug/versions", async (c) => {
 app.post("/:slug/versions", async (c) => {
   const caller = c.get("caller");
   requireDeveloper(caller);
+  assertNotSuspended(caller.developer);
 
   const slug = c.req.param("slug");
   const body = publishVersionSchema.parse(await c.req.json());

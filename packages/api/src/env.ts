@@ -23,6 +23,17 @@ const envSchema = z.object({
     .string()
     .default("dev-secret-change-this-in-production-please-1234"),
   AGENTGATE_JWT_ISSUER: z.string().default("agentgate"),
+  MAX_TOOLS_PER_DEVELOPER: z.coerce.number().default(100),
+  MAX_CALLS_PER_DEVELOPER_PER_DAY: z.coerce.number().default(10_000),
+  UPSTREAM_HOST_DENYLIST: z
+    .string()
+    .default("")
+    .transform((s) => s.split(",").map((v) => v.trim()).filter(Boolean)),
+  UPSTREAM_HOST_ALLOWLIST: z
+    .string()
+    .default("")
+    .transform((s) => s.split(",").map((v) => v.trim()).filter(Boolean)),
+  PUBLIC_API_URL: z.string().default("http://localhost:3002"),
 });
 
 export type Env = z.infer<typeof envSchema>;

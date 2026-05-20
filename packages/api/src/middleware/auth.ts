@@ -31,6 +31,12 @@ export const authMiddleware = createMiddleware<{ Variables: { caller: Caller } }
         where: eq(developers.apiKeyHash, hashApiKey(raw)),
       });
       if (dev) {
+        if (!dev.verified) {
+          throw new HTTPException(401, { message: "Developer is not verified" });
+        }
+        if (dev.suspended) {
+          throw new HTTPException(403, { message: "Developer is suspended" });
+        }
         c.set("caller", { kind: "developer", developer: dev, raw });
         return next();
       }

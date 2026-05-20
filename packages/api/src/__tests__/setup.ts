@@ -10,6 +10,9 @@ process.env.LOG_LEVEL = "fatal";
 process.env.RATE_LIMIT_READ_PER_MINUTE = "100000";
 process.env.RATE_LIMIT_WRITE_PER_MINUTE = "100000";
 process.env.RATE_LIMIT_CALL_PER_MINUTE = "100000";
+process.env.MAX_TOOLS_PER_DEVELOPER = "5";
+process.env.MAX_CALLS_PER_DEVELOPER_PER_DAY = "3";
+process.env.UPSTREAM_HOST_DENYLIST = "blocked.example.com";
 
 // Fresh DB file for each run
 if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
@@ -27,7 +30,9 @@ beforeEach(async () => {
   const { db } = await import("../db/client.js");
   const { tools, toolVersions } = await import("../db/schema/tools.js");
   const { developers } = await import("../db/schema/developers.js");
-  // Order matters: versions before tools (FK), then developers
+  const { invocations } = await import("../db/schema/invocations.js");
+  // Order matters: versions before tools (FK), then developers, then invocations
+  await db.delete(invocations);
   await db.delete(toolVersions);
   await db.delete(tools);
   await db.delete(developers);

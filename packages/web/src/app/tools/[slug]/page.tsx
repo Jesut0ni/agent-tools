@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getTool, listVersions, API_BASE } from "@/lib/api";
+import { getTool, listVersions, listInvocations, API_BASE } from "@/lib/api";
 import { getSession } from "@/lib/session";
 import { MethodBadge, AuthChip } from "@/lib/badges";
 import { TryIt } from "./try-it";
@@ -20,6 +20,7 @@ export default async function ToolDetailPage({
   const versions = await listVersions(slug);
   const session = await getSession();
   const isOwner = !!session && tool.ownerId === session.developerId;
+  const recent = isOwner && session ? await listInvocations(session.apiKey, { slug, limit: 10 }) : null;
   const exampleInput =
     spec?.examples && spec.examples.length > 0 ? spec.examples[0].input : undefined;
 
@@ -89,6 +90,54 @@ export default async function ToolDetailPage({
         <SectionLabel>Call it from your agent</SectionLabel>
         <CodeSnippets slug={tool.slug} apiBase={API_BASE} example={exampleInput} />
       </section>
+
+      {recent && (
+        <section className="space-y-3">
+          <SectionLabel>Recent activity · owner only · {recent.count}</SectionLabel>
+          {recent.items.length === 0 ? (
+            <div className="border border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500">
+              No invocations yet.
+            </div>
+          ) : (
+            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+              {recent.items.map((inv) => {
+                const ok = inv.status > 0 && inv.status < 400;
+                return (
+                  <li key={inv.id} className="p-3 flex items-center justify-between text-xs gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span
+                        className={`font-mono px-1.5 py-0.5 rounded border ${
+                          ok
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                            : "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30"
+                        }`}
+                      >
+                        {inv.status || "ERR"}
+                      </span>
+                      <span className="font-mono text-zinc-500 truncate">
+                        {inv.callerKind === "developer"
+                          ? `dev:${inv.callerId?.slice(0, 8) ?? "?"}…`
+                          : inv.callerKind === "agent"
+                            ? "agent (jwt)"
+                            : "anonymous"}
+                      </span>
+                      {inv.errorMessage && (
+                        <span className="text-red-500 truncate hidden md:inline">{inv.errorMessage}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="font-mono text-zinc-500">{inv.durationMs}ms</span>
+                      <time className="font-mono text-zinc-400">
+                        {new Date(inv.calledAt).toLocaleTimeString()}
+                      </time>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="space-y-3">
         <SectionLabel>Versions · {versions.length}</SectionLabel>

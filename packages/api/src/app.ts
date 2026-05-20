@@ -10,6 +10,7 @@ import healthRoutes from "./routes/health.js";
 import toolRoutes from "./routes/tools.js";
 import developerRoutes from "./routes/developers.js";
 import mcpRoutes from "./routes/mcp.js";
+import invocationRoutes from "./routes/invocations.js";
 
 export function createApp() {
   const env = getEnv();
@@ -61,10 +62,14 @@ export function createApp() {
   app.use("/api/v1/mcp", rateLimit(env.RATE_LIMIT_CALL_PER_MINUTE));
   app.use("/api/v1/mcp/*", rateLimit(env.RATE_LIMIT_CALL_PER_MINUTE));
 
+  app.use("/api/v1/invocations", rateLimit(env.RATE_LIMIT_READ_PER_MINUTE));
+  app.use("/api/v1/invocations/*", rateLimit(env.RATE_LIMIT_READ_PER_MINUTE));
+
   app.route("/api/v1/health", healthRoutes);
   app.route("/api/v1/tools", toolRoutes);
   app.route("/api/v1/developers", developerRoutes);
   app.route("/api/v1/mcp", mcpRoutes);
+  app.route("/api/v1/invocations", invocationRoutes);
 
   app.get("/", (c) =>
     c.json({

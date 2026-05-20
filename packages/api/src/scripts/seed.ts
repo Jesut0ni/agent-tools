@@ -115,7 +115,12 @@ async function main() {
     const { full, hash, preview } = generateApiKey();
     [demoDev] = await db
       .insert(developers)
-      .values({ email: DEMO_EMAIL, apiKeyHash: hash, apiKeyPreview: preview })
+      .values({
+        email: DEMO_EMAIL,
+        apiKeyHash: hash,
+        apiKeyPreview: preview,
+        verified: true,
+      })
       .returning();
     printedKey = full;
     console.log(`  + developer ${DEMO_EMAIL}`);

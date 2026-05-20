@@ -88,7 +88,7 @@ export async function deleteTool(slug: string, apiKey: string): Promise<ApiResul
 
 export async function signupDeveloper(
   email: string
-): Promise<ApiResult<{ id: string; email: string; apiKey: string; apiKeyPreview: string }>> {
+): Promise<ApiResult<{ email: string; verificationRequired: boolean; verifyUrl?: string; token?: string; message?: string }>> {
   const res = await fetch(new URL("/api/v1/developers", API_BASE), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -96,6 +96,41 @@ export async function signupDeveloper(
   });
   const body = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, body };
+}
+
+export async function verifyDeveloper(
+  token: string
+): Promise<ApiResult<{ id: string; email: string; apiKey: string; apiKeyPreview: string }>> {
+  const res = await fetch(new URL("/api/v1/developers/verify", API_BASE), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const body = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, body };
+}
+
+export interface InvocationRecord {
+  id: string;
+  toolSlug: string;
+  callerKind: "developer" | "agent" | "anonymous";
+  callerId: string | null;
+  status: number;
+  durationMs: number;
+  errorMessage: string | null;
+  calledAt: string;
+}
+
+export async function listInvocations(
+  apiKey: string,
+  opts: { slug?: string; limit?: number } = {}
+): Promise<{ items: InvocationRecord[]; count: number; nextCursor: string | null }> {
+  const url = new URL("/api/v1/invocations", API_BASE);
+  if (opts.slug) url.searchParams.set("slug", opts.slug);
+  if (opts.limit) url.searchParams.set("limit", String(opts.limit));
+  const res = await fetch(url, { headers: authHeaders(apiKey), cache: "no-store" });
+  if (!res.ok) return { items: [], count: 0, nextCursor: null };
+  return res.json();
 }
 
 export async function getCurrentDeveloper(apiKey: string): Promise<ApiResult> {
