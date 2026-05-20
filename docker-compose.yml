@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    image: agent-tools-api:latest
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: production
+      API_PORT: 3002
+      DATABASE_PATH: /data/agent-tools.db
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      AGENTGATE_JWT_SECRET: ${AGENTGATE_JWT_SECRET:?must be set to a 32+ char secret}
+      AGENTGATE_JWT_ISSUER: ${AGENTGATE_JWT_ISSUER:-agentgate}
+      RATE_LIMIT_READ_PER_MINUTE: ${RATE_LIMIT_READ_PER_MINUTE:-240}
+      RATE_LIMIT_WRITE_PER_MINUTE: ${RATE_LIMIT_WRITE_PER_MINUTE:-20}
+      RATE_LIMIT_CALL_PER_MINUTE: ${RATE_LIMIT_CALL_PER_MINUTE:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - agent-tools-data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+      args:
+        NEXT_PUBLIC_AGENT_TOOLS_API_URL: ${PUBLIC_API_URL:-http://localhost:3002}
+    image: agent-tools-web:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      AGENT_TOOLS_API_URL: http://api:3002
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  agent-tools-data:

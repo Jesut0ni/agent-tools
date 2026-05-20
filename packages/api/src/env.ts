@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const envSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_PATH: z.string().default("./agent-tools.db"),
   API_PORT: z.coerce.number().default(3002),
   API_URL: z.string().default("http://localhost:3002"),

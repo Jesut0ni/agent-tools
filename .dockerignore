@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+*.db
+*.db-*
+.test.db
+**/.env
+**/.env.local
+.git
+.gitignore
+*.log
+.DS_Store
