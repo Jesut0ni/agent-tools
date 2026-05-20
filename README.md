@@ -1,6 +1,6 @@
 # agent-tools
 
-An open registry of machine-readable tools designed for AI agents to discover and call programmatically — no human in the loop.
+An open registry of machine-readable tools designed for AI agents to discover and call programmatically; no human in the loop.
 
 Built around three primitives:
 
