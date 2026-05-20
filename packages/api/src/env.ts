@@ -6,6 +6,22 @@ const envSchema = z.object({
   API_URL: z.string().default("http://localhost:3002"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   CALL_TIMEOUT_MS: z.coerce.number().default(30_000),
+  CORS_ORIGINS: z
+    .string()
+    .default("http://localhost:3000")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    ),
+  RATE_LIMIT_READ_PER_MINUTE: z.coerce.number().default(240),
+  RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().default(20),
+  RATE_LIMIT_CALL_PER_MINUTE: z.coerce.number().default(60),
+  AGENTGATE_JWT_SECRET: z
+    .string()
+    .default("dev-secret-change-this-in-production-please-1234"),
+  AGENTGATE_JWT_ISSUER: z.string().default("agentgate"),
 });
 
 export type Env = z.infer<typeof envSchema>;

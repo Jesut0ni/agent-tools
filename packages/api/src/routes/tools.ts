@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, like, or, lt } from "drizzle-orm";
 import {
   publishToolSchema,
   publishVersionSchema,
@@ -10,8 +10,11 @@ import {
 } from "@agent-tools/shared";
 import { db } from "../db/client.js";
 import { tools, toolVersions, type ToolRow } from "../db/schema/tools.js";
-import { authMiddleware, type Caller } from "../middleware/auth.js";
+import { developers, type DeveloperRow } from "../db/schema/developers.js";
+import { authMiddleware, requireDeveloper, type Caller } from "../middleware/auth.js";
 import { assertSafeUrl } from "../lib/safe-fetch.js";
+import { validateJsonSchemaShape, validateAgainstSchema } from "../lib/json-schema.js";
+import { verifyAgentGateToken } from "../lib/agentgate-jwt.js";
 import { getEnv } from "../env.js";
 import { logger } from "../lib/logger.js";
 
@@ -50,10 +53,49 @@ async function loadLatestSpec(toolId: string, version: string | null): Promise<T
   return row ? (row.spec as ToolSpec) : null;
 }
 
+function assertOwner(tool: ToolRow, dev: DeveloperRow) {
+  if (tool.ownerId !== dev.id) {
+    throw new HTTPException(403, { message: "Only the tool owner can perform this action" });
+  }
+}
+
+function validateToolSpec(spec: ToolSpec) {
+  validateJsonSchemaShape(spec.input, "spec.input");
+  validateJsonSchemaShape(spec.output, "spec.output");
+  if (spec.examples) {
+    for (const [i, ex] of spec.examples.entries()) {
+      const issues = validateAgainstSchema(spec.input, ex.input);
+      if (issues) {
+        throw new HTTPException(400, {
+          message: `examples[${i}].input does not match input schema: ${issues}`,
+        });
+      }
+    }
+  }
+}
+
+function encodeCursor(date: Date, id: string): string {
+  return Buffer.from(`${date.getTime()}:${id}`).toString("base64url");
+}
+
+function decodeCursor(cursor: string): { ts: number; id: string } | null {
+  try {
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    const [ts, id] = decoded.split(":");
+    if (!ts || !id) return null;
+    return { ts: Number(ts), id };
+  } catch {
+    return null;
+  }
+}
+
 // POST /tools — publish a new tool with its first version
 app.post("/", async (c) => {
-  const body = publishToolSchema.parse(await c.req.json());
   const caller = c.get("caller");
+  requireDeveloper(caller);
+
+  const body = publishToolSchema.parse(await c.req.json());
+  validateToolSpec(body.spec);
 
   const existing = await db.query.tools.findFirst({ where: eq(tools.slug, body.slug) });
   if (existing) {
@@ -68,7 +110,7 @@ app.post("/", async (c) => {
       name: body.name,
       description: body.description,
       visibility: body.visibility,
-      ownerId: caller?.id ?? null,
+      ownerId: caller.developer.id,
       latestVersion: body.version,
       createdAt: now,
       updatedAt: now,
@@ -85,15 +127,25 @@ app.post("/", async (c) => {
   return c.json(serializeTool(tool, body.spec), 201);
 });
 
-// GET /tools — list public tools with optional search
+// GET /tools — list public tools with optional search + cursor pagination
 app.get("/", async (c) => {
   const query = listToolsQuerySchema.parse(c.req.query());
 
   const whereClauses = [eq(tools.visibility, "public")];
   if (query.q) {
     const term = `%${query.q.toLowerCase()}%`;
-    const searchClause = or(like(tools.slug, term), like(tools.name, term), like(tools.description, term));
+    const searchClause = or(
+      like(tools.slug, term),
+      like(tools.name, term),
+      like(tools.description, term)
+    );
     if (searchClause) whereClauses.push(searchClause);
+  }
+  if (query.cursor) {
+    const decoded = decodeCursor(query.cursor);
+    if (decoded) {
+      whereClauses.push(lt(tools.updatedAt, new Date(decoded.ts)));
+    }
   }
 
   const rows = await db
@@ -101,12 +153,21 @@ app.get("/", async (c) => {
     .from(tools)
     .where(and(...whereClauses))
     .orderBy(desc(tools.updatedAt))
-    .limit(query.limit);
+    .limit(query.limit + 1);
 
-  return c.json({
-    items: rows.map((r) => serializeTool(r)),
-    count: rows.length,
-  });
+  const hasMore = rows.length > query.limit;
+  const page = hasMore ? rows.slice(0, query.limit) : rows;
+
+  const items = await Promise.all(
+    page.map(async (r) => serializeTool(r, await loadLatestSpec(r.id, r.latestVersion)))
+  );
+
+  const nextCursor =
+    hasMore && page.length > 0
+      ? encodeCursor(page[page.length - 1].updatedAt, page[page.length - 1].id)
+      : null;
+
+  return c.json({ items, count: items.length, nextCursor });
 });
 
 // GET /tools/:slug — tool detail with latest spec
@@ -139,15 +200,23 @@ app.get("/:slug/versions", async (c) => {
 
 // POST /tools/:slug/versions — publish a new version of an existing tool
 app.post("/:slug/versions", async (c) => {
+  const caller = c.get("caller");
+  requireDeveloper(caller);
+
   const slug = c.req.param("slug");
   const body = publishVersionSchema.parse(await c.req.json());
+  validateToolSpec(body.spec);
+
   const tool = await loadToolBySlug(slug);
+  assertOwner(tool, caller.developer);
 
   const dup = await db.query.toolVersions.findFirst({
     where: and(eq(toolVersions.toolId, tool.id), eq(toolVersions.version, body.version)),
   });
   if (dup) {
-    throw new HTTPException(409, { message: `Version ${body.version} already exists for ${slug}` });
+    throw new HTTPException(409, {
+      message: `Version ${body.version} already exists for ${slug}`,
+    });
   }
 
   const now = new Date();
@@ -166,13 +235,26 @@ app.post("/:slug/versions", async (c) => {
   return c.json({ slug, version: body.version, spec: body.spec }, 201);
 });
 
+// DELETE /tools/:slug — owner-only deletion (cascades to versions)
+app.delete("/:slug", async (c) => {
+  const caller = c.get("caller");
+  requireDeveloper(caller);
+
+  const slug = c.req.param("slug");
+  const tool = await loadToolBySlug(slug);
+  assertOwner(tool, caller.developer);
+
+  await db.delete(tools).where(eq(tools.id, tool.id));
+  return c.body(null, 204);
+});
+
 // POST /tools/:slug/call — proxy invoke
 app.post("/:slug/call", async (c) => {
   const slug = c.req.param("slug");
   const tool = await loadToolBySlug(slug);
   const spec = toolSpecSchema.parse(await loadLatestSpec(tool.id, tool.latestVersion));
 
-  const url = assertSafeUrl(spec.endpoint.url);
+  const url = await assertSafeUrl(spec.endpoint.url);
   const caller = c.get("caller");
 
   const headers: Record<string, string> = {
@@ -182,21 +264,42 @@ app.post("/:slug/call", async (c) => {
 
   if (spec.auth.type === "bearer") {
     if (!caller) {
-      throw new HTTPException(401, { message: "Tool requires bearer token" });
+      throw new HTTPException(401, { message: "Tool requires a bearer token" });
     }
     headers[spec.auth.headerName.toLowerCase()] = `Bearer ${caller.raw}`;
   }
 
   if (spec.auth.type === "agentgate") {
-    // v0.1: validate AgentGate JWT + check scopes against spec.auth.scopes
     if (!caller) {
       throw new HTTPException(401, { message: "Tool requires AgentGate auth" });
     }
+    const claims = await verifyAgentGateToken(caller.raw, spec.auth.scopes);
     headers["authorization"] = `Bearer ${caller.raw}`;
+    headers["x-agentgate-subject"] = String(claims.sub ?? "");
   }
 
   const method = spec.endpoint.method;
-  const input = method === "GET" || method === "DELETE" ? undefined : await c.req.json().catch(() => ({}));
+  const rawInput = await c.req.json().catch(() => ({}));
+
+  const inputIssues = validateAgainstSchema(spec.input, rawInput);
+  if (inputIssues) {
+    throw new HTTPException(400, { message: `input does not match schema: ${inputIssues}` });
+  }
+
+  const usesQueryParams = method === "GET" || method === "DELETE";
+
+  if (usesQueryParams && rawInput && typeof rawInput === "object") {
+    for (const [key, value] of Object.entries(rawInput as Record<string, unknown>)) {
+      if (value === undefined || value === null) continue;
+      const encoded =
+        typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value);
+      url.searchParams.set(key, encoded);
+    }
+  }
+
+  const body = usesQueryParams ? undefined : JSON.stringify(rawInput);
 
   const started = Date.now();
   const controller = new AbortController();
@@ -207,7 +310,7 @@ app.post("/:slug/call", async (c) => {
     upstream = await fetch(url, {
       method,
       headers,
-      body: input === undefined ? undefined : JSON.stringify(input),
+      body,
       signal: controller.signal,
     });
   } catch (err) {
