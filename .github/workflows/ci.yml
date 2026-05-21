@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_ENV: test
+  AGENTGATE_JWT_SECRET: ci-test-secret-that-is-at-least-32-chars-long
+  CORS_ORIGINS: http://localhost:3000
+
+jobs:
+  test-and-build:
+    name: Test & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run API test suite
+        run: npm -w @agent-tools/api test
+
+      - name: Build shared
+        run: npm -w @agent-tools/shared run build
+
+      - name: Build api
+        run: npm -w @agent-tools/api run build
+
+      - name: Build web
+        run: npm -w @agent-tools/web run build
+        env:
+          NEXT_PUBLIC_AGENT_TOOLS_API_URL: http://localhost:3002
+
+      - name: Build mcp bridge
+        run: npm -w @agent-tools/mcp run build

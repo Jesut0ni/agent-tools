@@ -11,3 +11,7 @@ dist
 .next
 coverage
 *.log
+
+# local-only working files
+LAUNCH.md
+AgentTools_Overview.doc
