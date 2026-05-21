@@ -281,11 +281,11 @@ describe("tools — SSRF & host policy", () => {
 });
 
 describe("tools — AgentGate JWT", () => {
-  const SECRET = "dev-secret-change-this-in-production-please-1234";
-  const ISSUER = "agentgate";
-
   async function makeJwt(opts: { scopes?: string[]; expired?: boolean } = {}) {
-    const secret = new TextEncoder().encode(SECRET);
+    const { getEnv } = await import("../env.js");
+    const env = getEnv();
+    const secret = new TextEncoder().encode(env.AGENTGATE_JWT_SECRET);
+    const ISSUER = env.AGENTGATE_JWT_ISSUER;
     const jwt = new SignJWT({
       sub: "agent-test",
       scope: (opts.scopes ?? ["tools:call"]).join(" "),
