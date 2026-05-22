@@ -2,6 +2,10 @@
 
 An open registry of machine-readable tools designed for AI agents to discover and call programmatically; no human in the loop.
 
+[![CI](https://github.com/Jesut0ni/agent-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Jesut0ni/agent-tools/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 Built around three primitives:
 
 - **Tool** — a named, versioned, agent-callable capability (e.g. `acme-send-invoice`).
